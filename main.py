@@ -8,7 +8,7 @@ from aiogram.utils.exceptions import InvalidQueryID
 from yt_dlp import YoutubeDL
 import asyncio
 
-API_TOKEN = '7320164836:AAH1oe-8f_BxCX73ivtm6wDGng0vC8It_LY'
+API_TOKEN = ''
 
 logging.basicConfig(level=logging.INFO)
 
