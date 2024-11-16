@@ -18,18 +18,18 @@ if not os.path.exists('downloads'):
 # YouTube'dan MP3 formatida audio yuklash funksiyasi
 def download_audio(video_url):
     ydl_opts = {
-        'format': 'bestaudio/best',
+         'format': 'bestaudio/best',
         'noplaylist': True,
         'extractaudio': True,
         'audioformat': 'mp3',
         'outtmpl': 'downloads/%(title)s.%(ext)s',
         'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
+        'key': 'FFmpegExtractAudio',
+        'preferredcodec': 'mp3',
+        'preferredquality': '192',
         }],
-        'ffmpeg_location': '/usr/bin/ffmpeg',  # Linux uchun yo'l
-        'quiet': True,
+        'ffmpeg_location': '/usr/bin/ffmpeg',  # FFmpeg uchun to'g'ri yo'lni kiriting
+    'quiet': True,
     }
 
     with YoutubeDL(ydl_opts) as ydl:
