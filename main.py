@@ -2,11 +2,12 @@ import asyncio
 import logging
 import os
 import zipfile
+import time
+import aiohttp
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import Message, InputFile
 from aiogram.utils import executor
 from yt_dlp import YoutubeDL
-import aiofiles
 
 API_TOKEN = '7320164836:AAHEsvKlt040Sq0kRyRJWbAuk6jfNMoh3KI'
 bot = Bot(token=API_TOKEN)
@@ -17,6 +18,34 @@ logging.basicConfig(level=logging.INFO)
 download_dir = 'downloads/musiqalarim'
 if not os.path.exists(download_dir):
     os.makedirs(download_dir)
+
+# Fetch with timeout function
+async def fetch_with_timeout(url, req, **kwargs):
+    timeout = aiohttp.ClientTimeout(total=30)  # Set a 30-second timeout
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        try:
+            async with session.post(url, data=req, **kwargs) as response:
+                return await response.text()  # Or any other response handling
+        except asyncio.TimeoutError:
+            print("Request timed out")
+        except Exception as e:
+            print(f"An error occurred: {e}")
+
+# Fetch with retry function
+async def fetch_with_retry(url, req, retries=3, **kwargs):
+    timeout = aiohttp.ClientTimeout(total=30)
+    for attempt in range(retries):
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, data=req, **kwargs) as response:
+                    return await response.text()  # Or any other response handling
+        except asyncio.TimeoutError:
+            print(f"Attempt {attempt + 1} timed out. Retrying...")
+            time.sleep(2 ** attempt)  # Exponential backoff
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            break
+    print("Max retries reached, request failed.")
 
 # YouTube'dan MP3 formatida audio yuklash funksiyasi
 async def download_audio(search_query):
@@ -51,7 +80,6 @@ async def download_multiple_tracks(search_queries):
     tasks = [download_audio(query) for query in search_queries]
     results = await asyncio.gather(*tasks)
     return results
-
 
 # ZIP fayl yaratish va 50 MB cheklov
 def create_zip_files(files):
