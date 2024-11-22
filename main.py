@@ -25,16 +25,15 @@ semaphore = asyncio.Semaphore(5)  # Bir vaqtning o'zida 5 ta yuklash
 # YouTube'dan MP3 yuklash funksiyasi
 async def download_audio(search_query):
     ydl_opts = {
-        'format': 'bestaudio/best',
+        'format': 'bestaudio[ext=mp3]/bestaudio/best',
         'noplaylist': True,
-        'extractaudio': True,
-        'audioformat': 'mp3',
         'outtmpl': f'{download_dir}/%(title)s.%(ext)s',
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
+        'merge_output_format': 'mp3',
         'ffmpeg_location': '/usr/bin/ffmpeg',
         'quiet': True,
     }
@@ -45,10 +44,12 @@ async def download_audio(search_query):
             filename = ydl.prepare_filename(info['entries'][0])
             mp3_filename = os.path.splitext(filename)[0] + ".mp3"
             title = info['entries'][0]['title']
-            return mp3_filename, title if os.path.exists(mp3_filename) else (None, None)
+            if os.path.exists(mp3_filename):
+                return mp3_filename, title
         except Exception as e:
-            print(f"Yuklashda xatolik: {e}")
-            return None, None
+            print(f"Xato: {e}")
+        return None, None
+
 
 # Limited download handler
 async def limited_download_audio(search_query):
@@ -95,6 +96,27 @@ def create_zip_files(files):
 @dp.message_handler(commands=['start'])
 async def start_command(message: Message):
     await message.reply("Salom! Ashulalar ro'yxatini vergul bilan ajratib yozing va men ularni yuklab beraman.\n\nMasalan:\nshakira waka waka, michael jackson beat it", parse_mode='Markdown')
+
+@dp.message_handler(commands=['panel'])
+async def main_menu(message: Message):
+    if message.from_user.id == 6727002766:
+        await message.answer("Salom Admin")
+    else:
+        await message.answer('Siz admin emassiz! /help')
+
+@dp.message_handler(commands=['help'])
+async def start_command(message: Message):
+    await message.reply('''🔥 Assalomu alaykum. @Botusername ga Xush kelibsiz. Bot orqali quyidagilarni yuklab olishingiz mumkin:
+
+
+
+Shazam funksiya:
+• Qo‘shiq nomi yoki ijrochi ismi
+ va qo'shiqlarni hohlagan formatingizda yuklab fayl shaklida olishingiz mumkin 
+
+🚀 Yuklab olmoqchi bo'lgan musiqlaringiz nomini vergul bilan kiriting!
+''')
+
 
 
 @dp.message_handler(content_types=types.ContentTypes.TEXT)
