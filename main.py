@@ -1,137 +1,120 @@
-import logging
-import aiohttp
-import os
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from aiogram.utils import executor
-from aiogram.utils.exceptions import InvalidQueryID
-from yt_dlp import YoutubeDL
 import asyncio
+import logging
+import os
+import zipfile
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import Message, InputFile
+from aiogram.utils import executor
+from yt_dlp import YoutubeDL
 
-API_TOKEN = '7320164836:AAH1oe-8f_BxCX73ivtm6wDGng0vC8It_LY'
+API_TOKEN = '7320164836:AAHEsvKlt040Sq0kRyRJWbAuk6jfNMoh3KI'
+bot = Bot(token=API_TOKEN)
+dp = Dispatcher(bot)
 
 logging.basicConfig(level=logging.INFO)
 
-if not os.path.exists('downloads'):
-    os.makedirs('downloads')
+# Yuklash uchun katalog yaratamiz
+download_dir = 'downloads/musiqalarim'
+if not os.path.exists(download_dir):
+    os.makedirs(download_dir)
 
 # YouTube'dan MP3 formatida audio yuklash funksiyasi
-def download_audio(video_url):
-    ydl_opts = {
-         'format': 'bestaudio/best',
-        'noplaylist': True,
-        'extractaudio': True,
-        'audioformat': 'mp3',
-        'outtmpl': 'downloads/%(title)s.%(ext)s',
-        'postprocessors': [{
-        'key': 'FFmpegExtractAudio',
-        'preferredcodec': 'mp3',
-        'preferredquality': '192',
-        }],
-        'ffmpeg_location': '/usr/bin/ffmpeg',  # FFmpeg uchun to'g'ri yo'lni kiriting
-    'quiet': True,
-    }
-
-    with YoutubeDL(ydl_opts) as ydl:
-        try:
-            info = ydl.extract_info(video_url, download=True)
-            filename = ydl.prepare_filename(info)
-            mp3_filename = os.path.splitext(filename)[0] + ".mp3"
-            return mp3_filename if os.path.exists(mp3_filename) else None
-        except Exception as e:
-            logging.error(f"Yuklashda xatolik: {e}")
-            return None
-
-# Qo'shiqchi nomiga asoslangan 10 ta qo'shiq qidirish
-def search_top_songs(search_query):
+def download_audio(search_query):
     ydl_opts = {
         'format': 'bestaudio/best',
         'noplaylist': True,
+        'extractaudio': True,
+        'audioformat': 'mp3',
+        'outtmpl': f'{download_dir}/%(title)s.%(ext)s',
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+        'ffmpeg_location': '/usr/bin/ffmpeg',  # Linux uchun yo'l
         'quiet': True,
     }
 
     with YoutubeDL(ydl_opts) as ydl:
         try:
-            search_result = ydl.extract_info(f"ytsearch10:{search_query}", download=False)
-            entries = search_result.get('entries', [])
-            return [{"title": entry["title"], "url": entry["webpage_url"]} for entry in entries]
+            info = ydl.extract_info(f"ytsearch:{search_query}", download=True)
+            filename = ydl.prepare_filename(info['entries'][0])
+            mp3_filename = os.path.splitext(filename)[0] + ".mp3"
+            title = info['entries'][0]['title']
+            return mp3_filename, title if os.path.exists(mp3_filename) else (None, None)
         except Exception as e:
-            logging.error(f"Qidiruvda xatolik: {e}")
-            return []
+            print(f"Yuklashda xatolik: {e}")
+            return None, None
 
-async def main():
-    bot = Bot(token=API_TOKEN)
-    dp = Dispatcher(bot)
 
-    @dp.message_handler(commands=['start'])
-    async def start_command(message: Message):
-        await message.reply("Salom! Qo'shiqchi nomini yozing va men uning eng mashhur 10 ta qo'shig'ini ko'rsataman.")
+# ZIP fayl yaratish va 50 MB cheklov
+def create_zip_files(files):
+    zip_files = []
+    current_zip_size = 0
+    current_zip_name = None
+    current_zip = None
 
-    @dp.message_handler(content_types=types.ContentTypes.TEXT)
-    async def send_music_list(message: Message):
-        search_query = message.text
-        await message.reply("Qidirilmoqda, biroz kuting...")
+    for file_path in files:
+        file_size = os.path.getsize(file_path)
+        if not current_zip or current_zip_size + file_size > 50 * 1024 * 1024:  # 50 MB
+            if current_zip:
+                current_zip.close()
+                zip_files.append(current_zip_name)
 
-        # 10 ta qo'shiq qidirish
-        songs = search_top_songs(search_query)
+            current_zip_name = os.path.join(download_dir, f"archive_{len(zip_files) + 1}.zip")
+            current_zip = zipfile.ZipFile(current_zip_name, 'w')
+            current_zip_size = 0
 
-        if songs:
-            keyboard = InlineKeyboardMarkup(row_width=2)
-            for idx, song in enumerate(songs, start=1):
-                button = InlineKeyboardButton(
-                    text=f"{idx}. {song['title'][:30]}",
-                    callback_data=f"download_{idx}"
-                )
-                keyboard.add(button)
+        current_zip.write(file_path, os.path.basename(file_path))
+        current_zip_size += file_size
 
-            await message.reply(
-                "Quyidagi qo'shiqlardan birini tanlang:",
-                reply_markup=keyboard
-            )
-            dp.current_songs = songs
-        else:
-            await message.reply("Qo'shiq topilmadi yoki xatolik yuz berdi.")
+    if current_zip:
+        current_zip.close()
+        zip_files.append(current_zip_name)
 
-    @dp.callback_query_handler(lambda c: c.data and c.data.startswith('download_'))
-    async def process_callback_download(callback_query: CallbackQuery):
-        index = int(callback_query.data.split('_')[1]) - 1
-        song = dp.current_songs[index]
+    return zip_files
 
-        try:
-            await bot.answer_callback_query(
-                callback_query.id,
-                text="Musiqa yuklanmoqda, biroz kuting...",
-                show_alert=False
-            )
-        except InvalidQueryID:
-            await bot.send_message(
-                callback_query.from_user.id,
-                "Musiqa yuklashda xatolik yuz berdi: so'rov muddati tugadi."
-            )
-            return
 
-        await bot.send_message(callback_query.from_user.id, f"{song['title']} yuklanmoqda, biroz kuting...")
+@dp.message_handler(commands=['start'])
+async def start_command(message: Message):
+    await message.reply("Salom! Ashulalar ro'yxatini vergul bilan ajratib yozing va men ularni yuklab beraman.\n\nMasalan:\nshakira waka waka, michael jackson beat it", parse_mode='Markdown')
 
-        # Audio yuklash
-        file_path = download_audio(song["url"])
 
-        if file_path:
-            with open(file_path, 'rb') as audio:
-                await bot.send_audio(
-                    chat_id=callback_query.from_user.id,
-                    audio=audio,
-                    title=os.path.basename(file_path)
-                )
-            os.remove(file_path)
-        else:
-            await bot.send_message(
-                callback_query.from_user.id,
-                "Musiqa yuklashda xatolik yuz berdi."
-            )
+@dp.message_handler(content_types=types.ContentTypes.TEXT)
+async def send_music(message: Message):
+    search_queries = message.text.split(',')
+    search_queries = [query.strip() for query in search_queries if query.strip()]
 
-    dp.current_songs = []
-    await dp.start_polling()
+    if not search_queries:
+        await message.reply("Iltimos, ashulalar ro'yxatini kiriting.")
+        return
+
+    await message.reply("Ashulalar yuklanmoqda, biroz kuting...")
+
+    downloaded_files = []
+
+    # MP3 fayllarni yuklash
+    for search_query in search_queries:
+        mp3_file_path, title = download_audio(search_query)
+        if mp3_file_path:
+            downloaded_files.append(mp3_file_path)
+
+    if downloaded_files:
+        zip_files = create_zip_files(downloaded_files)
+        for zip_file in zip_files:
+            await bot.send_document(message.chat.id, InputFile(zip_file))
+        await message.reply("Ashulalar ZIP faylda yuborildi!")
+        clear_downloaded_files()
+    else:
+        await message.reply("Ashulalarni yuklashda xatolik yuz berdi.")
+
+
+# Yuklangan fayllarni tozalash funksiyasi
+def clear_downloaded_files():
+    for root, dirs, files in os.walk(download_dir):
+        for file in files:
+            os.remove(os.path.join(root, file))
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    executor.start_polling(dp, skip_updates=True)
