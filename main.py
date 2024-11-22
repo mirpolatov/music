@@ -6,6 +6,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.types import Message, InputFile
 from aiogram.utils import executor
 from yt_dlp import YoutubeDL
+import aiofiles
 
 API_TOKEN = '7320164836:AAHEsvKlt040Sq0kRyRJWbAuk6jfNMoh3KI'
 bot = Bot(token=API_TOKEN)
@@ -13,13 +14,12 @@ dp = Dispatcher(bot)
 
 logging.basicConfig(level=logging.INFO)
 
-# Yuklash uchun katalog yaratamiz
 download_dir = 'downloads/musiqalarim'
 if not os.path.exists(download_dir):
     os.makedirs(download_dir)
 
 # YouTube'dan MP3 formatida audio yuklash funksiyasi
-def download_audio(search_query):
+async def download_audio(search_query):
     ydl_opts = {
         'format': 'bestaudio/best',
         'noplaylist': True,
@@ -45,6 +45,12 @@ def download_audio(search_query):
         except Exception as e:
             print(f"Yuklashda xatolik: {e}")
             return None, None
+
+# Asynchronous download handler
+async def download_multiple_tracks(search_queries):
+    tasks = [download_audio(query) for query in search_queries]
+    results = await asyncio.gather(*tasks)
+    return results
 
 
 # ZIP fayl yaratish va 50 MB cheklov
@@ -91,11 +97,11 @@ async def send_music(message: Message):
 
     await message.reply("Ashulalar yuklanmoqda, biroz kuting...")
 
+    # Asynchronous MP3 download
     downloaded_files = []
+    results = await download_multiple_tracks(search_queries)
 
-    # MP3 fayllarni yuklash
-    for search_query in search_queries:
-        mp3_file_path, title = download_audio(search_query)
+    for mp3_file_path, title in results:
         if mp3_file_path:
             downloaded_files.append(mp3_file_path)
 
