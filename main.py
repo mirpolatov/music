@@ -19,7 +19,10 @@ download_dir = 'downloads/musiqalarim'
 if not os.path.exists(download_dir):
     os.makedirs(download_dir)
 
-# YouTube'dan MP3 formatida audio yuklash funksiyasi
+# Global semaphore
+semaphore = asyncio.Semaphore(5)  # Bir vaqtning o'zida 5 ta yuklash
+
+# YouTube'dan MP3 yuklash funksiyasi
 async def download_audio(search_query):
     ydl_opts = {
         'format': 'bestaudio/best',
@@ -32,7 +35,7 @@ async def download_audio(search_query):
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
-        'ffmpeg_location': '/usr/bin/ffmpeg',  # Linux uchun yo'l
+        'ffmpeg_location': '/usr/bin/ffmpeg',
         'quiet': True,
     }
 
@@ -47,11 +50,19 @@ async def download_audio(search_query):
             print(f"Yuklashda xatolik: {e}")
             return None, None
 
-# Asynchronous download handler
+# Limited download handler
+async def limited_download_audio(search_query):
+    async with semaphore:
+        return await download_audio(search_query)
+
+# Parallel downloads with semaphore
 async def download_multiple_tracks(search_queries):
-    tasks = [download_audio(query) for query in search_queries]
-    results = await asyncio.gather(*tasks)  # Parallel download
+    tasks = [limited_download_audio(query) for query in search_queries]
+    results = await asyncio.gather(*tasks)
     return results
+
+
+# Asynchronous download handler
 
 # ZIP fayl yaratish va 50 MB cheklov
 def create_zip_files(files):
