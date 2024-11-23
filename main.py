@@ -1,122 +1,21 @@
 import asyncio
 import logging
-import os
-import zipfile
-import time
-import aiohttp
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import Message, InputFile
 from aiogram.utils import executor
-from yt_dlp import YoutubeDL
+from celery.result import AsyncResult
+from tasks import download_audio_task, create_zip_task
 
-API_TOKEN = '7320164836:AAHEsvKlt040Sq0kRyRJWbAuk6jfNMoh3KI'
+API_TOKEN = '6583880436:AAEWxOdUYbuj4bwe7gbvw9-b-kfW8m7pwaU'
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
 logging.basicConfig(level=logging.INFO)
 
-download_dir = 'downloads/musiqalarim'
-if not os.path.exists(download_dir):
-    os.makedirs(download_dir)
-
-# Global semaphore
-semaphore = asyncio.Semaphore(5)  # Bir vaqtning o'zida 5 ta yuklash
-
-# YouTube'dan MP3 yuklash funksiyasi
-async def download_audio(search_query):
-    ydl_opts = {
-        'format': 'bestaudio[ext=mp3]/bestaudio/best',
-        'noplaylist': True,
-        'outtmpl': f'{download_dir}/%(title)s.%(ext)s',
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-        'merge_output_format': 'mp3',
-        'ffmpeg_location': '/usr/bin/ffmpeg',
-        'quiet': True,
-    }
-
-    with YoutubeDL(ydl_opts) as ydl:
-        try:
-            info = ydl.extract_info(f"ytsearch:{search_query}", download=True)
-            filename = ydl.prepare_filename(info['entries'][0])
-            mp3_filename = os.path.splitext(filename)[0] + ".mp3"
-            title = info['entries'][0]['title']
-            if os.path.exists(mp3_filename):
-                return mp3_filename, title
-        except Exception as e:
-            print(f"Xato: {e}")
-        return None, None
-
-
-# Limited download handler
-async def limited_download_audio(search_query):
-    async with semaphore:
-        return await download_audio(search_query)
-
-# Parallel downloads with semaphore
-async def download_multiple_tracks(search_queries):
-    tasks = [limited_download_audio(query) for query in search_queries]
-    results = await asyncio.gather(*tasks)
-    return results
-
-
-# Asynchronous download handler
-
-# ZIP fayl yaratish va 50 MB cheklov
-def create_zip_files(files):
-    zip_files = []
-    current_zip_size = 0
-    current_zip_name = None
-    current_zip = None
-
-    for file_path in files:
-        file_size = os.path.getsize(file_path)
-        if not current_zip or current_zip_size + file_size > 50 * 1024 * 1024:  # 50 MB
-            if current_zip:
-                current_zip.close()
-                zip_files.append(current_zip_name)
-
-            current_zip_name = os.path.join(download_dir, f"archive_{len(zip_files) + 1}.zip")
-            current_zip = zipfile.ZipFile(current_zip_name, 'w')
-            current_zip_size = 0
-
-        current_zip.write(file_path, os.path.basename(file_path))
-        current_zip_size += file_size
-
-    if current_zip:
-        current_zip.close()
-        zip_files.append(current_zip_name)
-
-    return zip_files
-
 
 @dp.message_handler(commands=['start'])
 async def start_command(message: Message):
     await message.reply("Salom! Ashulalar ro'yxatini vergul bilan ajratib yozing va men ularni yuklab beraman.\n\nMasalan:\nshakira waka waka, michael jackson beat it", parse_mode='Markdown')
-
-@dp.message_handler(commands=['panel'])
-async def main_menu(message: Message):
-    if message.from_user.id == 6727002766:
-        await message.answer("Salom Admin")
-    else:
-        await message.answer('Siz admin emassiz! /help')
-
-@dp.message_handler(commands=['help'])
-async def start_command(message: Message):
-    await message.reply('''🔥 Assalomu alaykum. @Botusername ga Xush kelibsiz. Bot orqali quyidagilarni yuklab olishingiz mumkin:
-
-
-
-Shazam funksiya:
-• Qo‘shiq nomi yoki ijrochi ismi
- va qo'shiqlarni hohlagan formatingizda yuklab fayl shaklida olishingiz mumkin 
-
-🚀 Yuklab olmoqchi bo'lgan musiqlaringiz nomini vergul bilan kiriting!
-''')
-
 
 
 @dp.message_handler(content_types=types.ContentTypes.TEXT)
@@ -130,29 +29,28 @@ async def send_music(message: Message):
 
     await message.reply("Ashulalar yuklanmoqda, biroz kuting...")
 
-    # Asynchronous MP3 download
-    downloaded_files = []
-    results = await download_multiple_tracks(search_queries)
+    # Celery bilan yuklash
+    task_ids = [download_audio_task.delay(query) for query in search_queries]
 
-    for mp3_file_path, title in results:
-        if mp3_file_path:
-            downloaded_files.append(mp3_file_path)
+    # Vazifalar natijasini kutish
+    downloaded_files = []
+    for task_id in task_ids:
+        result = AsyncResult(task_id.id)
+        while not result.ready():
+            await asyncio.sleep(1)
+        downloaded_files.append(result.result)
 
     if downloaded_files:
-        zip_files = create_zip_files(downloaded_files)
+        zip_task = create_zip_task.delay(downloaded_files)
+        while not zip_task.ready():
+            await asyncio.sleep(1)
+
+        zip_files = zip_task.result
         for zip_file in zip_files:
             await bot.send_document(message.chat.id, InputFile(zip_file))
         await message.reply("Ashulalar ZIP faylda yuborildi!")
-        clear_downloaded_files()
     else:
         await message.reply("Ashulalarni yuklashda xatolik yuz berdi.")
-
-
-# Yuklangan fayllarni tozalash funksiyasi
-def clear_downloaded_files():
-    for root, dirs, files in os.walk(download_dir):
-        for file in files:
-            os.remove(os.path.join(root, file))
 
 
 if __name__ == '__main__':
