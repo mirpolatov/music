@@ -6,7 +6,7 @@ from aiogram.utils import executor
 from celery.result import AsyncResult
 from tasks import download_audio_task, create_zip_task
 
-API_TOKEN = '6583880436:AAEWxOdUYbuj4bwe7gbvw9-b-kfW8m7pwaU'
+API_TOKEN = '7320164836:AAHEsvKlt040Sq0kRyRJWbAuk6jfNMoh3KI'
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
